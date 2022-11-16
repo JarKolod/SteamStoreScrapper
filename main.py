@@ -41,7 +41,9 @@ def parsePrice(prices: list) -> tuple:
         price = 'Free To Play'
 
     try:
-        discprice = prices[2]
+        discprice = prices[1]
+        if discprice == '':
+            discprice = price
     except:
         discprice = price
 
@@ -73,7 +75,7 @@ def parse(data):
         price, discprice = parsePrice(prices)
         allReviews = getNumberOfAllReviews(reviewInfo)
 
-        print(title, price, discprice, reviewInfo)
+        print(title, price, discprice, reviewInfo, prices)
         mygame = {
             'title': title,
             'price': price.replace(r',', r'.'),
