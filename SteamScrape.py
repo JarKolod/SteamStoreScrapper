@@ -4,12 +4,14 @@ import json
 import pandas as pd
 import time
 import re
+import csv
 
 #url = "https://store.steampowered.com/search/results/?query&start=0&count=50&dynamic_data=&sort_by=_ASC&snr=1_7_7_230_7&infinite=1"
-
+numberOfLoads = 100
+firstWrite = True
 
 def totalresults(url):
-    r = requests.get(url)
+    r = requests.get(url, timeout=0.5)
     data = dict(r.json())
     totalresults = data['total_count']
     return int(totalresults)
@@ -17,7 +19,7 @@ def totalresults(url):
 
 
 def get_data(url):
-    r = requests.get(url)
+    r = requests.get(url, timeout=0.5)
     data = dict(r.json())
     return data['results_html']
 
@@ -38,16 +40,18 @@ def parseReviews(reviewUnParsed: list) -> list:
 def parsePrice(prices: list) -> tuple:
     price = prices[0]
     if not price:
-        price = 'Free To Play'
+        return -1,-1
+    if price == 'Free to Play':
+        return 0,0
 
     try:
-        discprice = prices[1]
-        if discprice == '':
-            discprice = price
+        discountPrice = prices[1]
+        if discountPrice == '':
+            discountPrice = price
     except:
-        discprice = price
+        discountPrice = price
 
-    return price, discprice
+    return price, discountPrice
 
 
 
@@ -60,51 +64,73 @@ def getNumberOfAllReviews(reviewInfo: list):
                 )) / int(reviewInfo[0])
 
 
+def getGamesTags(url: str)->list:
+    print(url)
+    page = requests.get(url,timeout=0.5)
+    soup = BeautifulSoup(page.content, 'html.parser')
+    tags = soup.find_all('a', {'class': 'app_tag'})
+    return [x.text.strip() for x in tags]
 
 def parse(data):
     gameslist = []
+    reviewReg = re.compile('(\d*)%|([\d,]*) user reviews')
+    
     soup = BeautifulSoup(data, 'html.parser')
     games = soup.find_all('a')
-    reviewReg = re.compile('(\d*)%|([\d,]*) user reviews')
     for game in games:
         title = game.find('span', {'class': 'title'}).text
         prices = game.find('div', {'class': 'search_price'}).text.strip().split('zł')
         reviewHtml = game.find('span', {'class': 'search_review_summary'})
 
-        reviewInfo = parseReviews(reviewReg.findall(str(reviewHtml)))
-        price, discprice = parsePrice(prices)
-        allReviews = getNumberOfAllReviews(reviewInfo)
+        isSuccess = False
+        while not isSuccess:
+            try:
+                reviewInfo = parseReviews(reviewReg.findall(str(reviewHtml)))
+                price, discountPrice = parsePrice(prices)
+                allReviews = getNumberOfAllReviews(reviewInfo)
+                tags = getGamesTags(game['href'])
+                isSuccess = True
+            except:
+                print('Timed out connection, trying again')
+            
 
-        print(title, price, discprice, reviewInfo, prices)
+        print(title, price, discountPrice, reviewInfo, prices, tags[0], tags[1], tags[2])
         mygame = {
             'title': title,
-            'price': price.replace(r',', r'.'),
-            'discprice': discprice.replace(r',', r'.'),
+            'price': str(price).replace(r',', r'.'),
+            'discountPrice': str(discountPrice).replace(r',', r'.'),
             'review': reviewInfo[0],
             'numberOfPositiveReviews': reviewInfo[1].replace(r',', ''),
-            'numberOfAllReviews': int(allReviews)
+            'numberOfAllReviews': int(allReviews),
+            'tag1': tags[0],
+            'tag2': tags[1],
+            'tag3': tags[2]
         }
         gameslist.append(mygame)
     return gameslist
 
 
-
 def output(results):
+    global firstWrite
     gamesdf = pd.concat([pd.DataFrame(g) for g in results])
-    gamesdf.to_csv('gamesprices.csv', index=False)
+    if firstWrite:
+        gamesdf.to_csv('gamesprices.csv', index=False)
+        firstWrite = False
+    else:
+        gamesdf.to_csv('gamesprices.csv', header=False, index=False, mode='a')
     print('Saved to CSV')
-    # print(gamesdf.head())
     return
 
 
 
 def app():
     results = []
-    for x in range(0, 100, 50):
+    for x in range(0, numberOfLoads * 50, 50):
         data = get_data(
             f'https://store.steampowered.com/search/results/?query&start={x}&count=50&dynamic_data=&sort_by=_ASC&snr=1_7_7_7000_7&filter=topsellers&tags=19&infinite=1')
         results.append(parse(data))
         output(results)
+        results.clear()
 
 
 
