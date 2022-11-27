@@ -6,27 +6,32 @@ import re
 import threading
 
 #url = "https://store.steampowered.com/search/results/?query&start=0&count=50&dynamic_data=&sort_by=_ASC&snr=1_7_7_230_7&infinite=1"
-numberOfLoads = 100
+numberOfLoads = 500
 firstWrite = True
 lock = threading.Lock()
 
-def request_getter(url: str):
+def requestGetter(url: str):
+    counter = 0
     while True:
+        counter += 1
         try:
+            if counter >= 20:
+                print("Sir we are stuck in the getter request, url=\"" + url +"\"")
             return requests.get(url, timeout=0.5)
         except:
-                print(threading.currentThread + 'thread log: Request to: ' + url + ' failed, trying again')
+                counter = 0
+                print('[' + str(threading.get_native_id()) + '] thread log: Request to: ' + url + ' failed, trying again')
 
-def totalresults(url: str):
-    r = request_getter(url)
+def getSumOfAllResults(url: str):
+    r = requestGetter(url)
     data = dict(r.json())
-    totalresults = data['total_count']
-    return int(totalresults)
+    total = data['total_count']
+    return int(total)
 
 
 
-def get_data(url:str):
-    r = request_getter(url)
+def getHtmlData(url:str):
+    r = requestGetter(url)
     data = dict(r.json())
     return data['results_html']
 
@@ -35,7 +40,7 @@ def get_data(url:str):
 def parseReviews(reviewUnParsed: list) -> list:
     reviewInfo = []
     if not reviewUnParsed:
-        return ['n/a', 'n/a']
+        return [0, 0]
     for pair in reviewUnParsed:
         for element in pair:
             if element:
@@ -63,7 +68,7 @@ def parsePrice(prices: list) -> tuple:
 
 
 def getNumberOfAllReviews(reviewInfo: list):
-    if reviewInfo[0] == 'n/a':
+    if reviewInfo[0] == 0:
         return 0
     return (
         100 * (
@@ -73,7 +78,7 @@ def getNumberOfAllReviews(reviewInfo: list):
 
 def getGamesTags(url: str)->list:
     #print(url)
-    page = request_getter(url)
+    page = requestGetter(url)
     soup = BeautifulSoup(page.content, 'html.parser')
     tags = soup.find_all('a', {'class': 'app_tag'})
     tags = [x.text.strip() for x in tags]
@@ -106,9 +111,9 @@ def parse(data):
             'title': title,
             'price': str(price).replace(r',', r'.'),
             'discountPrice': str(discountPrice).replace(r',', r'.'),
-            'review': reviewInfo[0],
-            'numberOfPositiveReviews': reviewInfo[1].replace(r',', ''),
-            'numberOfAllReviews': int(allReviews),
+            'review': str(reviewInfo[0]),
+            'numberOfPositiveReviews': str(reviewInfo[1]).replace(r',', ''),
+            'numberOfAllReviews': int(allReviews + 1),
             'tag1': tags[0],
             'tag2': tags[1],
             'tag3': tags[2]
@@ -131,7 +136,7 @@ def everyNextOutput(results):
 
 def writeToCsvNext50Games(x: int):
     results = []
-    data = get_data(
+    data = getHtmlData(
         f'https://store.steampowered.com/search/results/?query&start={x}&count=50&dynamic_data=&sort_by=_ASC&snr=1_7_7_7000_7&filter=topsellers&tags=19&infinite=1')
     results.append(parse(data))
     with lock:
@@ -141,7 +146,7 @@ def writeToCsvNext50Games(x: int):
 def app():
     t = []
     results = []
-    data = get_data(
+    data = getHtmlData(
         f'https://store.steampowered.com/search/results/?query&start=0&count=50&dynamic_data=&sort_by=_ASC&snr=1_7_7_7000_7&filter=topsellers&tags=19&infinite=1')
     results.append(parse(data))
     firsTimeOutput(results)
