@@ -2,24 +2,31 @@ from bs4 import BeautifulSoup
 import requests
 import json
 import pandas as pd
-import time
 import re
-import csv
+import threading
 
 #url = "https://store.steampowered.com/search/results/?query&start=0&count=50&dynamic_data=&sort_by=_ASC&snr=1_7_7_230_7&infinite=1"
 numberOfLoads = 100
 firstWrite = True
+lock = threading.Lock()
 
-def totalresults(url):
-    r = requests.get(url, timeout=0.5)
+def request_getter(url: str):
+    while True:
+        try:
+            return requests.get(url, timeout=0.5)
+        except:
+                print(threading.currentThread + 'thread log: Request to: ' + url + ' failed, trying again')
+
+def totalresults(url: str):
+    r = request_getter(url)
     data = dict(r.json())
     totalresults = data['total_count']
     return int(totalresults)
 
 
 
-def get_data(url):
-    r = requests.get(url, timeout=0.5)
+def get_data(url:str):
+    r = request_getter(url)
     data = dict(r.json())
     return data['results_html']
 
@@ -65,11 +72,18 @@ def getNumberOfAllReviews(reviewInfo: list):
 
 
 def getGamesTags(url: str)->list:
-    print(url)
-    page = requests.get(url,timeout=0.5)
+    #print(url)
+    page = request_getter(url)
     soup = BeautifulSoup(page.content, 'html.parser')
     tags = soup.find_all('a', {'class': 'app_tag'})
-    return [x.text.strip() for x in tags]
+    tags = [x.text.strip() for x in tags]
+    if len(tags) == 0:
+        tags = ['n/a','n/a','n/a']
+    elif len(tags) == 1:
+        tags = [tags[0],'n/a','n/a']
+    elif len(tags) == 2:
+        tags = [tags[0],tags[1],'n/a']
+    return tags
 
 def parse(data):
     gameslist = []
@@ -82,19 +96,12 @@ def parse(data):
         prices = game.find('div', {'class': 'search_price'}).text.strip().split('zł')
         reviewHtml = game.find('span', {'class': 'search_review_summary'})
 
-        isSuccess = False
-        while not isSuccess:
-            try:
-                reviewInfo = parseReviews(reviewReg.findall(str(reviewHtml)))
-                price, discountPrice = parsePrice(prices)
-                allReviews = getNumberOfAllReviews(reviewInfo)
-                tags = getGamesTags(game['href'])
-                isSuccess = True
-            except:
-                print('Timed out connection, trying again')
-            
+        reviewInfo = parseReviews(reviewReg.findall(str(reviewHtml)))
+        price, discountPrice = parsePrice(prices)
+        allReviews = getNumberOfAllReviews(reviewInfo)
+        tags = getGamesTags(game['href'])
 
-        print(title, price, discountPrice, reviewInfo, prices, tags[0], tags[1], tags[2])
+        #print(title, price, discountPrice, reviewInfo, prices, tags[0], tags[1], tags[2])
         mygame = {
             'title': title,
             'price': str(price).replace(r',', r'.'),
@@ -110,27 +117,50 @@ def parse(data):
     return gameslist
 
 
-def output(results):
-    global firstWrite
+def firsTimeOutput(results):
     gamesdf = pd.concat([pd.DataFrame(g) for g in results])
-    if firstWrite:
-        gamesdf.to_csv('gamesprices.csv', index=False)
-        firstWrite = False
-    else:
-        gamesdf.to_csv('gamesprices.csv', header=False, index=False, mode='a')
-    print('Saved to CSV')
+    gamesdf.to_csv('gamesInfo.csv', index=False)
+    #print('Saved to CSV')
+    return
+
+def everyNextOutput(results):
+    gamesdf = pd.concat([pd.DataFrame(g) for g in results])
+    gamesdf.to_csv('gamesInfo.csv', header=False, index=False, mode='a')
     return
 
 
+def writeToCsvNext50Games(x: int):
+    results = []
+    data = get_data(
+        f'https://store.steampowered.com/search/results/?query&start={x}&count=50&dynamic_data=&sort_by=_ASC&snr=1_7_7_7000_7&filter=topsellers&tags=19&infinite=1')
+    results.append(parse(data))
+    with lock:
+        everyNextOutput(results)
+    results.clear()
 
 def app():
+    t = []
     results = []
-    for x in range(0, numberOfLoads * 50, 50):
-        data = get_data(
-            f'https://store.steampowered.com/search/results/?query&start={x}&count=50&dynamic_data=&sort_by=_ASC&snr=1_7_7_7000_7&filter=topsellers&tags=19&infinite=1')
-        results.append(parse(data))
-        output(results)
-        results.clear()
+    data = get_data(
+        f'https://store.steampowered.com/search/results/?query&start=0&count=50&dynamic_data=&sort_by=_ASC&snr=1_7_7_7000_7&filter=topsellers&tags=19&infinite=1')
+    results.append(parse(data))
+    firsTimeOutput(results)
+    results.clear()
+
+
+    print("\n\n\n CREATING THREADS\n\n\n\n")
+    for i in range(1, numberOfLoads):
+        t.append(threading.Thread(target=writeToCsvNext50Games, args=[i*50]))
+
+    print("\n\n\n STARTING THREADS\n\n\n\n")
+    for i in t:
+        i.start()
+
+    print("\n\n\n THREADS STARTED \n\n\n\n")
+
+    for i in t:
+        i.join()
+
 
 
 
