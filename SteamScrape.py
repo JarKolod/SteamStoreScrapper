@@ -1,11 +1,9 @@
 from bs4 import BeautifulSoup
 import requests
-import json
 import pandas as pd
 import re
 import threading
 
-#url = "https://store.steampowered.com/search/results/?query&start=0&count=50&dynamic_data=&sort_by=_ASC&snr=1_7_7_230_7&infinite=1"
 numberOfLoads = 500
 firstWrite = True
 lock = threading.Lock()
@@ -52,9 +50,9 @@ def parseReviews(reviewUnParsed: list) -> list:
 def parsePrice(prices: list) -> tuple:
     price = prices[0]
     if not price:
-        return -1,-1
+        return (-1,-1)
     if price == 'Free to Play':
-        return 0,0
+        return (0,0)
 
     try:
         discountPrice = prices[1]
@@ -122,13 +120,13 @@ def parse(data):
     return gameslist
 
 
-def firsTimeOutput(results):
+def writeToCsv(results):
     gamesdf = pd.concat([pd.DataFrame(g) for g in results])
     gamesdf.to_csv('gamesInfo.csv', index=False)
     #print('Saved to CSV')
     return
 
-def everyNextOutput(results):
+def addToCsv(results):
     gamesdf = pd.concat([pd.DataFrame(g) for g in results])
     gamesdf.to_csv('gamesInfo.csv', header=False, index=False, mode='a')
     return
@@ -140,7 +138,7 @@ def writeToCsvNext50Games(x: int):
         f'https://store.steampowered.com/search/results/?query&start={x}&count=50&dynamic_data=&sort_by=_ASC&snr=1_7_7_7000_7&filter=topsellers&tags=19&infinite=1')
     results.append(parse(data))
     with lock:
-        everyNextOutput(results)
+        addToCsv(results)
     results.clear()
 
 def app():
@@ -149,7 +147,7 @@ def app():
     data = getHtmlData(
         f'https://store.steampowered.com/search/results/?query&start=0&count=50&dynamic_data=&sort_by=_ASC&snr=1_7_7_7000_7&filter=topsellers&tags=19&infinite=1')
     results.append(parse(data))
-    firsTimeOutput(results)
+    writeToCsv(results)
     results.clear()
 
 
